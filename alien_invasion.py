@@ -1,6 +1,8 @@
 import sys
 import pygame
+from time import sleep
 from settings import Settings
+from game_stats import GameStats
 from ship import Ship
 from bullet import Bullet
 from alien import Alien
@@ -17,17 +19,21 @@ class AlienInvasion:
         self.settings.screen_width = self.screen.get_rect().width
         self.settings.screen_height = self.screen.get_rect().height
         pygame.display.set_caption("Alien Invasion")
+        self.stats = GameStats(self)
         self.ship = Ship(self)
         self.bullets = pygame.sprite.Group()
         self.aliens = pygame.sprite.Group()
         self._create_fleet()
+        self.game_active = True
     
     def run_game(self):
         """Запускает основной цикл игры."""
         while True:
             self._check_events()
-            self.ship.update()
-            self._update_bullets()
+            if self.game_active:
+                self.ship.update()
+                self._update_bullets()
+                self._update_aliens()
             self._update_screen()
             self.clock.tick(60)
     
@@ -53,7 +59,20 @@ class AlienInvasion:
         """Создает новый снаряд и добавляет его в группу bullets."""
         if len(self.bullets) < self.settings.bullets_allowed:
             new_bullet = Bullet(self)
-            self.bullets.add(new_bullet)      
+            self.bullets.add(new_bullet)
+    
+    def _change_fleet_direction(self):
+        """Отпускает весь флот и меняет его направление."""
+        for alien in self.aliens.sprites():
+            alien.rect.y += self.settings.fleet_drop_seed
+        self.settings.fleet_direction *= -1
+
+    def _check_fleet_edges(self):
+        """Реагирует на достижение пришельцем края экрана."""
+        for alien in self.aliens.sprites():
+            if alien.check_edges():
+                self._change_fleet_direction()
+                break      
     
     def _check_events(self):
         """Обрабатывает нажатие клавиш и события мыши."""
@@ -65,6 +84,32 @@ class AlienInvasion:
                 elif event.type == pygame.KEYUP:
                     self._check_keyup_events(event)
     
+    def _check_bullet_alien_collisions(self):
+        """Обрабатывает коллизии снарядов с пришельцами."""
+        collisions = pygame.sprite.groupcollide(self.bullets, self.aliens, True, True)
+        if not self.aliens:
+            self.bullets.empty()
+            self._create_fleet()
+    
+    def _ship_hit(self):
+        """Обрабатывает столкновение корабля с пришельцем."""
+        if self.stats.ships_left > 0:
+            self.stats.ships_left -=1
+            self.aliens.empty()
+            self.bullets.empty()
+            self._create_fleet()
+            self.ship.center_ship()
+            sleep(0.5)
+        else:
+            self.game_active = False
+
+    def _check_aliens_bottom(self):
+        """Проверяет, добрались ли пришельцы до нижнего края экрана."""
+        for alien in self.aliens.sprites():
+            if alien.rect.bottom >= self.settings.screen_height:
+                self._ship_hit
+                break
+
     def _update_screen(self):
         """Обновляет изображения на экране и отображает новый экран."""
         self.screen.fill(self.settings.bg_color)
@@ -80,6 +125,7 @@ class AlienInvasion:
         for bullet in self.bullets.copy():
             if bullet.rect.bottom <= 0:
                 self.bullets.remove(bullet)
+        self._check_bullet_alien_collisions()
 
     def _create_alien(self, x_position, y_position):
         """Создает пришельца и размещает его в ряду."""
@@ -100,6 +146,16 @@ class AlienInvasion:
                 current_x += 2 * alien_width
             current_x = alien_width
             current_y += 2 * alien_height
+    
+    def _update_aliens(self):
+        """Проверяет, достиг ли флот края экрана, с последующим обновлением
+        позиций всех пришельцев во флоте.
+        """
+        self._check_fleet_edges()
+        self.aliens.update()
+        if pygame.sprite.spritecollideany(self.ship, self.aliens):
+            self._ship_hit()
+        self._check_aliens_bottom()
 
 
 if __name__ == "__main__":
